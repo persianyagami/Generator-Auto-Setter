@@ -1,19 +1,42 @@
-#include <Foundation/Foundation.h>
-#include <removefile.h>
+#import <Foundation/Foundation.h>
+#import "libdementia.h"
 
-CFStringRef bundleID = CFSTR("com.michael.generator");
+#define bundleID @"com.michael.generator"
+#define containerURL [NSURL URLWithString:@"file:///private/var/mobile"]
 
 void usage() {
     printf("Usage:\tsetgenerator [generator]\n");
-    printf("\t-s\tShow current setting.\n");
+    printf("\t-s\tShow current status.\n");
+}
+
+bool vaildGenerator(const char *generator) {
+    if (strlen(generator) != 18 || generator[0] != '0' || generator[1] != 'x') {
+        return false;
+    }
+    for (int i = 2; i <= 17; i++) {
+        if (!isxdigit(generator[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const char *getGenerator() {
+    id generator = [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] objectForKey:@"generator"];
+    if (generator != nil) {
+        if ([generator isKindOfClass:[NSString class]]) {
+            const char *value = [generator cStringUsingEncoding:NSUTF8StringEncoding];
+            if (vaildGenerator(value)) {
+                return value;
+            }
+        }
+        [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] removeObjectForKey:@"generator"];
+    }
+    return "0x1111111111111111";
 }
 
 int main(int argc, char **argv) {
-    if (getuid() != 0) {
-        setuid(0);
-    }
-
-    if (getuid() != 0) {
+    if (getuid() && setuid(0)) {
         printf("Can't set uid as 0.\n");
         return 2;
     }
@@ -25,43 +48,57 @@ int main(int argc, char **argv) {
 
     if (argc == 2) {
         if (strcmp(argv[1], "-s") == 0) {
-            CFArrayRef keyList = CFPreferencesCopyKeyList(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
-            if (keyList != NULL && CFArrayContainsValue(keyList, CFRangeMake(0, CFArrayGetCount(keyList)), CFSTR("generator"))) {
-                NSString *generator = (NSString *)CFBridgingRelease(CFPreferencesCopyValue(CFSTR("generator"), bundleID, CFSTR("mobile"), kCFPreferencesAnyHost));
-                if ([generator characterAtIndex:0] == '0' && [generator characterAtIndex:1] == 'x' && [[NSNumber numberWithUnsignedInteger:[generator length]] intValue] == 18) {
-                    printf("The currently set generator is %s.\n", [generator UTF8String]);
-                    return 0;
+            uint8_t nonce_d[CC_SHA384_DIGEST_LENGTH];
+            size_t i, nonce_d_sz;
+            uint64_t nonce;
+            if (dimentio_preinit(&nonce, false, nonce_d, &nonce_d_sz) == KERN_SUCCESS || (dimentio_init(0, NULL, NULL) == KERN_SUCCESS && dimentio(&nonce, false, nonce_d, &nonce_d_sz) == KERN_SUCCESS)) {
+                printf("The currently generator is 0x%016" PRIX64 ".\n", nonce);
+                if(nonce_d_sz != 0) {
+                    printf("nonce_d: ");
+                    for(i = 0; i < nonce_d_sz; ++i) {
+                        printf("%02" PRIX8, nonce_d[i]);
+                    }
+                    putchar('\n');
+                }
+                dimentio_term();
+            }
+            id enabled = [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] objectForKey:@"enabled"];
+            if (enabled != nil) {
+                if ([enabled isKindOfClass:[NSNumber class]]) {
+                    if (![enabled boolValue]) {
+                        printf("The program will NOT run automatically during the next jailbreak.\n");
+                        goto next;
+                    }
                 } else {
-                    removefile("/private/var/mobile/Library/Preferences/com.michael.generator.plist", NULL, REMOVEFILE_RECURSIVE);
-                    CFPreferencesSynchronize(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
+                    [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] removeObjectForKey:@"enabled"];
                 }
             }
-            printf("The currently set generator is 0x1111111111111111.\n");
+            printf("The program will run automatically during the next jailbreak.\n");
+next:
+            printf("When next time the program is running, the generator will be set to %s.\n", getGenerator());
             return 0;
-        } else if (argv[1][0] != '0' || argv[1][1] != 'x' || strlen(argv[1]) != 18) {
+        } else if (!vaildGenerator(argv[1])) {
             usage();
             return 3;
         } else {
-            removefile("/private/var/mobile/Library/Preferences/com.michael.generator.plist", NULL, REMOVEFILE_RECURSIVE);
-            CFPreferencesSynchronize(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
-            CFPreferencesSetValue(CFSTR("generator"), CFStringCreateWithCString(kCFAllocatorDefault, argv[1], kCFStringEncodingUTF8), bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
+            [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] setObject:[[NSString alloc] initWithUTF8String:argv[1]] forKey:@"generator"];
         }
     }
 
-    int ret = 1, status;
-    CFArrayRef keyList = CFPreferencesCopyKeyList(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
-    if (keyList != NULL && CFArrayContainsValue(keyList, CFRangeMake(0, CFArrayGetCount(keyList)), CFSTR("generator"))) {
-        NSString *generator = (NSString *)CFBridgingRelease(CFPreferencesCopyValue(CFSTR("generator"), bundleID, CFSTR("mobile"), kCFPreferencesAnyHost));
-        if ([generator characterAtIndex:0] == '0' && [generator characterAtIndex:1] == 'x' && [[NSNumber numberWithUnsignedInteger:[generator length]] intValue] == 18) {
-            status = system([[NSString stringWithFormat:@"dimentio %@", generator] UTF8String]);
-            ret = WEXITSTATUS(status);
-            return ret;
-        } else {
-            removefile("/private/var/mobile/Library/Preferences/com.michael.generator.plist", NULL, REMOVEFILE_RECURSIVE);
-            CFPreferencesSynchronize(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
+    uint8_t nonce_d[CC_SHA384_DIGEST_LENGTH];
+    size_t i, nonce_d_sz;
+    uint64_t nonce;
+    sscanf(getGenerator(), "0x%016" PRIx64, &nonce);
+    if (dimentio_preinit(&nonce, true, nonce_d, &nonce_d_sz) == KERN_SUCCESS || (dimentio_init(0, NULL, NULL) == KERN_SUCCESS && dimentio(&nonce, true, nonce_d, &nonce_d_sz) == KERN_SUCCESS)) {
+        printf("Set generator to 0x%016" PRIX64 "\n", nonce);
+        if(nonce_d_sz != 0) {
+            printf("nonce_d: ");
+            for(i = 0; i < nonce_d_sz; ++i) {
+                printf("%02" PRIX8, nonce_d[i]);
+            }
+            putchar('\n');
         }
+        dimentio_term();
     }
-    status = system("dimentio 0x1111111111111111");
-    ret = WEXITSTATUS(status);
-    return ret;
+    return 0;
 }

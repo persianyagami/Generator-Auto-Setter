@@ -1,13 +1,20 @@
-#include <Foundation/Foundation.h>
+#import <Foundation/Foundation.h>
 
-CFStringRef bundleID = CFSTR("com.michael.generator");
+#define bundleID @"com.michael.generator"
+#define containerURL [NSURL URLWithString:@"file:///private/var/mobile"]
 
 int main() {
-    int ret = 0;
-    CFArrayRef keyList = CFPreferencesCopyKeyList(bundleID, CFSTR("mobile"), kCFPreferencesAnyHost);
-    if (keyList == NULL || !CFArrayContainsValue(keyList, CFRangeMake(0, CFArrayGetCount(keyList)), CFSTR("enabled")) || CFBooleanGetValue(CFPreferencesCopyValue(CFSTR("enabled"), bundleID, CFSTR("mobile"), kCFPreferencesAnyHost))) {
-        int status = system("setgenerator");
-        ret = WEXITSTATUS(status);
+    id enabled = [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] objectForKey:@"enabled"];
+    if (enabled != nil) {
+        if ([enabled isKindOfClass:[NSNumber class]]) {
+            if (![enabled boolValue]) {
+                return 0;
+            }
+        } else {
+            [[[NSUserDefaults alloc] _initWithSuiteName:bundleID container:containerURL] removeObjectForKey:@"enabled"];
+        }
     }
-    return ret;
+    execvp("setgenerator", (char *[]){"setgenerator", NULL});
+    perror("setgenerator");
+    return -1;
 }

@@ -3,8 +3,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int main()
-{
+int main() {
     if (getuid() != 0) {
         printf("Run this as root!\n");
         return 1;
@@ -13,6 +12,7 @@ int main()
     chown("/usr/bin/setgenerator", 0, 0);
     chmod("/usr/bin/setgenerator", 06755);
 
-    system("setgenerator");
-    return 0;
+    execvp("setgenerator", (char *[]){"setgenerator", NULL});
+    perror("setgenerator");
+    return -1;
 }
